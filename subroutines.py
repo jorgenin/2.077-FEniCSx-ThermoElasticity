@@ -342,7 +342,7 @@ class ThemoElasticPlaneStrain():
 class ThermoElastic3D():
     def __init__(self,u,p,theta,u_old,p_old,theta_old,domain,**kwargs):
         self.k_B      = Constant(domain,1.38E-17)             # Boltzmann's constant
-        self.theta0   = Constant(domain,298.0)                  # Initial temperature
+        self.theta0   = Constant(domain,273.0)                  # Initial temperature
         self.Gshear_0 = Constant(domain,280.0)                  # Ground sate shear modulus
         self.N_R      = Constant(domain,PETSc.ScalarType(self.Gshear_0/(self.k_B*self.theta0)))# Number polymer chains per unit ref. volume
         self.lambdaL  = Constant(domain,5.12)                 # Locking stretch
