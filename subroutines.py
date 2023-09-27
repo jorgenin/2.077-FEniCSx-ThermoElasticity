@@ -195,7 +195,7 @@ class ThermoElasticAxialSymmetric():
         T2 = I1 - T1 - T3
         
         return T1, T2, T3
-    
+
 
 class ThemoElasticPlaneStrain():
     def __init__(self,u,p,theta,u_old,p_old,theta_old,domain,**kwargs):
@@ -336,4 +336,130 @@ class ThemoElasticPlaneStrain():
         Tcond = J * self.k_therm * Cinv # Thermal conductivity tensor
         #
         Qmat = - Tcond * self.pe_grad_scalar(theta)
+        return Qmat
+
+   
+class ThermoElastic3D():
+    def __init__(self,u,p,theta,u_old,p_old,theta_old,domain,**kwargs):
+        self.k_B      = Constant(domain,1.38E-17)             # Boltzmann's constant
+        self.theta0   = Constant(domain,298.0)                  # Initial temperature
+        self.Gshear_0 = Constant(domain,280.0)                  # Ground sate shear modulus
+        self.N_R      = Constant(domain,PETSc.ScalarType(self.Gshear_0/(self.k_B*self.theta0)))# Number polymer chains per unit ref. volume
+        self.lambdaL  = Constant(domain,5.12)                 # Locking stretch
+        self.Kbulk    = Constant(domain,PETSc.ScalarType(1000*self.Gshear_0))        # Bulk modulus
+        self.alpha    = Constant(domain,180.0E-6)             # Coefficient of thermal expansion
+        self.c_v      = Constant(domain,1930.0)                 # Specific heat
+        self.k_therm  = Constant(domain,0.16E3)               # Thermal conductivity
+
+        if "alpha" in kwargs.keys():
+            self.alpha = kwargs["alpha"]
+
+        self.u=u
+        self.p =p
+        self.theta= theta
+
+        self.u_old=u_old
+        self.p_old =p_old
+        self.theta_old= theta_old
+        self.x = SpatialCoordinate(domain)
+        self.domain = domain
+
+    def Kinematics(self, u= None,p=None,theta=None,u_old= None,p_old=None,theta_old=None):
+            if u == None:
+                u = self.u
+            if p == None:
+                p = self.p
+            if theta == None:
+                theta = self.theta
+            if u_old == None:
+                u_old = self.u_old
+            if p_old == None:
+                p_old = self.p_old
+            if theta_old == None:
+                theta_old = self.theta_old
+            
+            self.F = self.F_calc(u)
+            J = det(self.F)   
+            #
+            self.lambdaBar = self.lambdaBar_calc(u)
+            #
+            self.F_old = self.F_calc(u_old)
+            self.J_old = det(self.F_old)   
+            #
+            self.C     = self.F.T*self.F
+            self.C_old = self.F_old.T*self.F_old
+
+            #  Tmat stress
+            Tmat = self.Tmat_calc(u, p, theta)
+
+            # Calculate the stress-temperature tensor
+            self.M = self.M_calc(u)
+
+            # Calculate the heat flux
+            self.Qmat = self.Heat_flux_calc(u,theta)
+
+            return Tmat,J
+
+    def F_calc(self,u):
+        Id = Identity(3) 
+        F  = Id + grad(u) 
+        return F
+
+    def lambdaBar_calc(self,u):
+        F    = self.F_calc(u)
+        J    = det(F)
+        C    = F.T*F
+        Cdis = J**(-2/3)*C
+        I1   = tr(Cdis)
+        lambdaBar = sqrt(I1/3.0)
+        return lambdaBar
+
+    def zeta_calc(self,u):
+        lambdaBar = self.lambdaBar_calc(u)
+        # Use Pade approximation of Langevin inverse (A. Cohen, 1991)
+        z    = lambdaBar/self.lambdaL
+        z    = conditional(gt(z,0.95), 0.95, z) # Prevent the function from blowing up
+        beta = z*(3.0 - z**2.0)/(1.0 - z**2.0)
+        zeta = (self.lambdaL/(3*lambdaBar))*beta
+        return zeta
+
+
+    # Piola stress 
+    def Tmat_calc(self,u, p, theta):
+        F = self.F_calc(u)
+        J = det(F)
+        C  = F.T*F
+        #
+        zeta = self.zeta_calc(u)
+        Gshear  = self.N_R * self.k_B * theta * zeta
+        #
+        Tmat = J**(-2/3) * Gshear * (F - (1/3)*tr(C)*inv(F.T) ) - J * p * inv(F.T)
+        return Tmat
+
+    # Calculate the stress temperature tensor
+    def M_calc(self,u):
+        Id  = Identity(3)         
+        F   = self.F_calc(u) 
+        #
+        C  = F.T*F
+        Cinv = inv(C) 
+        J = det(F)
+        zeta = self.zeta_calc(u)
+        #
+        fac1 = self.N_R * self.k_B * zeta
+        fac2 = (3*self.Kbulk*self.alpha)/J
+        #
+        M =  J**(-2/3) * fac1 * (Id - (1/3)*tr(C)*Cinv)  - J * fac2 * Cinv
+        return M
+        
+    #  Heat flux
+    def Heat_flux_calc(self,u, theta):
+        F = self.F_calc(u) 
+        J = det(F)         
+        #
+        Cinv = inv(F.T*F) 
+        #
+        Tcond = J * self.k_therm * Cinv # Thermal conductivity tensor
+        #
+        Qmat = - Tcond * grad(theta)
         return Qmat
