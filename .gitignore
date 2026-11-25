@@ -1,2 +1,11 @@
 results/
 .DS_Store
+.venv/
+__pycache__/
+.mypy_cache/
+*.h5
+*.lock
+build/
+.env
+.env.*
+.ipynb_checkpoints/
